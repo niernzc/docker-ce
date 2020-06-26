@@ -32,15 +32,15 @@ import (
 	"github.com/docker/docker/integration-cli/cli/build"
 	"github.com/docker/docker/integration-cli/daemon"
 	"github.com/docker/docker/opts"
-	"github.com/docker/docker/pkg/mount"
 	testdaemon "github.com/docker/docker/testutil/daemon"
 	units "github.com/docker/go-units"
 	"github.com/docker/libnetwork/iptables"
 	"github.com/docker/libtrust"
+	"github.com/moby/sys/mount"
 	"golang.org/x/sys/unix"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
-	"gotest.tools/poll"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
+	"gotest.tools/v3/poll"
 )
 
 const containerdSocket = "/var/run/docker/containerd/containerd.sock"
@@ -1246,7 +1246,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartKillWait(c *testing.T) {
 
 	s.d.Restart(c)
 
-	errchan := make(chan error)
+	errchan := make(chan error, 1)
 	go func() {
 		if out, err := s.d.Cmd("wait", containerID); err != nil {
 			errchan <- fmt.Errorf("%v:\n%s", err, out)
@@ -1599,15 +1599,17 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithPausedContainer(c *testing.T) {
 	}
 	s.d.Restart(c)
 
-	errchan := make(chan error)
+	errchan := make(chan error, 1)
 	go func() {
 		out, err := s.d.Cmd("start", "test")
 		if err != nil {
 			errchan <- fmt.Errorf("%v:\n%s", err, out)
+			return
 		}
 		name := strings.TrimSpace(out)
 		if name != "test" {
 			errchan <- fmt.Errorf("Paused container start error on docker daemon restart, expected 'test' but got '%s'", name)
+			return
 		}
 		close(errchan)
 	}()

@@ -1,12 +1,15 @@
-# syntax=docker/dockerfile:1.1.3-experimental
+# syntax=docker/dockerfile:1.1.7-experimental
 
 ARG CROSS="false"
-ARG GO_VERSION=1.13.5
+ARG SYSTEMD="false"
+# IMPORTANT: When updating this please note that stdlib archive/tar pkg is vendored
+ARG GO_VERSION=1.13.12
 ARG DEBIAN_FRONTEND=noninteractive
-ARG VPNKIT_DIGEST=e508a17cfacc8fd39261d5b4e397df2b953690da577e2c987a47630cd0c42f8e
+ARG VPNKIT_VERSION=0.4.0
 ARG DOCKER_BUILDTAGS="apparmor seccomp selinux"
+ARG GOLANG_IMAGE="golang:${GO_VERSION}-buster"
 
-FROM golang:${GO_VERSION}-buster AS base
+FROM ${GOLANG_IMAGE} AS base
 RUN echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 ARG APT_MIRROR
 RUN sed -ri "s/(httpredir|deb).debian.org/${APT_MIRROR:-deb.debian.org}/g" /etc/apt/sources.list \
@@ -29,7 +32,7 @@ RUN --mount=type=cache,sharing=locked,id=moby-criu-aptlib,target=/var/lib/apt \
             python-protobuf
 
 # Install CRIU for checkpoint/restore support
-ENV CRIU_VERSION 3.12
+ARG CRIU_VERSION=3.14
 RUN mkdir -p /usr/src/criu \
     && curl -sSL https://github.com/checkpoint-restore/criu/archive/v${CRIU_VERSION}.tar.gz | tar -C /usr/src/criu/ -xz --strip-components=1 \
     && cd /usr/src/criu \
@@ -67,7 +70,7 @@ WORKDIR $GOPATH/src/github.com/go-swagger/go-swagger
 # Install go-swagger for validating swagger.yaml
 # This is https://github.com/kolyshkin/go-swagger/tree/golang-1.13-fix
 # TODO: move to under moby/ or fix upstream go-swagger to work for us.
-ENV GO_SWAGGER_COMMIT 5793aa66d4b4112c2602c716516e24710e4adbb5
+ENV GO_SWAGGER_COMMIT 5e6cb12f7c82ce78e45ba71fa6cb1928094db050
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=tmpfs,target=/go/src/ \
@@ -142,83 +145,74 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/
 FROM runtime-dev-cross-${CROSS} AS runtime-dev
 
 FROM base AS tomlv
-ENV INSTALL_BINARY_NAME=tomlv
 ARG TOMLV_COMMIT
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh tomlv
 
 FROM base AS vndr
-ENV INSTALL_BINARY_NAME=vndr
 ARG VNDR_COMMIT
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh vndr
 
 FROM dev-base AS containerd
 ARG DEBIAN_FRONTEND
-ARG CONTAINERD_COMMIT
 RUN --mount=type=cache,sharing=locked,id=moby-containerd-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=moby-containerd-aptcache,target=/var/cache/apt \
         apt-get update && apt-get install -y --no-install-recommends \
             libbtrfs-dev
-ENV INSTALL_BINARY_NAME=containerd
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
+ARG CONTAINERD_COMMIT
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh containerd
 
 FROM dev-base AS proxy
-ENV INSTALL_BINARY_NAME=proxy
 ARG LIBNETWORK_COMMIT
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh proxy
 
 FROM base AS golangci_lint
-ENV INSTALL_BINARY_NAME=golangci_lint
 ARG GOLANGCI_LINT_COMMIT
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh golangci_lint
 
 FROM base AS gotestsum
-ENV INSTALL_BINARY_NAME=gotestsum
 ARG GOTESTSUM_COMMIT
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh gotestsum
+
+FROM base AS shfmt
+ARG SHFMT_COMMIT
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh shfmt
 
 FROM dev-base AS dockercli
-ENV INSTALL_BINARY_NAME=dockercli
 ARG DOCKERCLI_CHANNEL
 ARG DOCKERCLI_VERSION
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh dockercli
 
 FROM runtime-dev AS runc
-ENV INSTALL_BINARY_NAME=runc
 ARG RUNC_COMMIT
 ARG RUNC_BUILDTAGS
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh runc
 
 FROM dev-base AS tini
 ARG DEBIAN_FRONTEND
@@ -228,30 +222,29 @@ RUN --mount=type=cache,sharing=locked,id=moby-tini-aptlib,target=/var/lib/apt \
         apt-get update && apt-get install -y --no-install-recommends \
             cmake \
             vim-common
-COPY hack/dockerfile/install/install.sh ./install.sh
-ENV INSTALL_BINARY_NAME=tini
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh tini
 
 FROM dev-base AS rootlesskit
-ENV INSTALL_BINARY_NAME=rootlesskit
 ARG ROOTLESSKIT_COMMIT
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-        PREFIX=/build/ ./install.sh $INSTALL_BINARY_NAME
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh rootlesskit
 COPY ./contrib/dockerd-rootless.sh /build
+COPY ./contrib/dockerd-rootless-setuptool.sh /build
 
-FROM djs55/vpnkit@sha256:${VPNKIT_DIGEST} AS vpnkit
+FROM djs55/vpnkit:${VPNKIT_VERSION} AS vpnkit
 
 # TODO: Some of this is only really needed for testing, it would be nice to split this up
-FROM runtime-dev AS dev
+FROM runtime-dev AS dev-systemd-false
 ARG DEBIAN_FRONTEND
 RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser
+RUN useradd --create-home --gid docker unprivilegeduser \
+ && mkdir -p /home/unprivilegeduser/.local/share/docker \
+ && chown -R unprivilegeduser /home/unprivilegeduser
 # Let us use a .bashrc file
 RUN ln -sfv /go/src/github.com/docker/docker/.bashrc ~/.bashrc
 # Activate bash completion and include Docker's completion if mounted with DOCKER_BASH_COMPLETION_PATH
@@ -278,7 +271,9 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             python3-pip \
             python3-setuptools \
             python3-wheel \
+            sudo \
             thin-provisioning-tools \
+            uidmap \
             vim \
             vim-common \
             xfsprogs \
@@ -286,7 +281,8 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             zip
 
 
-# Switch to use iptables instead of nftables (to match the host machine)
+# Switch to use iptables instead of nftables (to match the CI hosts)
+# TODO use some kind of runtime auto-detection instead if/when nftables is supported (https://github.com/moby/moby/issues/26824)
 RUN update-alternatives --set iptables  /usr/sbin/iptables-legacy  || true \
  && update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true \
  && update-alternatives --set arptables /usr/sbin/arptables-legacy || true
@@ -303,6 +299,7 @@ COPY --from=criu          /build/ /usr/local/
 COPY --from=vndr          /build/ /usr/local/bin/
 COPY --from=gotestsum     /build/ /usr/local/bin/
 COPY --from=golangci_lint /build/ /usr/local/bin/
+COPY --from=shfmt         /build/ /usr/local/bin/
 COPY --from=runc          /build/ /usr/local/bin/
 COPY --from=containerd    /build/ /usr/local/bin/
 COPY --from=rootlesskit   /build/ /usr/local/bin/
@@ -313,8 +310,24 @@ ARG DOCKER_BUILDTAGS
 ENV DOCKER_BUILDTAGS="${DOCKER_BUILDTAGS}"
 WORKDIR /go/src/github.com/docker/docker
 VOLUME /var/lib/docker
+VOLUME /home/unprivilegeduser/.local/share/docker
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
+
+FROM dev-systemd-false AS dev-systemd-true
+RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-dev-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
+            dbus \
+            dbus-user-session \
+            systemd \
+            systemd-sysv
+RUN mkdir -p hack \
+  && curl -o hack/dind-systemd https://raw.githubusercontent.com/AkihiroSuda/containerized-systemd/b70bac0daeea120456764248164c21684ade7d0d/docker-entrypoint.sh \
+  && chmod +x hack/dind-systemd
+ENTRYPOINT ["hack/dind-systemd"]
+
+FROM dev-systemd-${SYSTEMD} AS dev
 
 FROM runtime-dev AS binary-base
 ARG DOCKER_GITCOMMIT=HEAD
@@ -338,6 +351,7 @@ COPY --from=runc        /build/ /usr/local/bin/
 COPY --from=containerd  /build/ /usr/local/bin/
 COPY --from=rootlesskit /build/ /usr/local/bin/
 COPY --from=proxy       /build/ /usr/local/bin/
+COPY --from=vpnkit      /vpnkit /usr/local/bin/vpnkit.x86_64
 WORKDIR /go/src/github.com/docker/docker
 
 FROM binary-base AS build-binary
@@ -354,6 +368,7 @@ FROM binary-base AS build-cross
 ARG DOCKER_CROSSPLATFORMS
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,target=/go/src/github.com/docker/docker \
+    --mount=type=tmpfs,target=/go/src/github.com/docker/docker/autogen \
         hack/make.sh cross
 
 FROM scratch AS binary

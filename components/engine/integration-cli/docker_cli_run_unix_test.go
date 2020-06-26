@@ -23,11 +23,11 @@ import (
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
 	"github.com/docker/docker/pkg/homedir"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/sysinfo"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"github.com/moby/sys/mount"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 // #6509
@@ -40,7 +40,7 @@ func (s *DockerSuite) TestRunRedirectStdout(c *testing.T) {
 		cmd.Stdout = tty
 		cmd.Stderr = tty
 		assert.NilError(c, cmd.Start())
-		ch := make(chan error)
+		ch := make(chan error, 1)
 		go func() {
 			ch <- cmd.Wait()
 			close(ch)
@@ -122,7 +122,7 @@ func (s *DockerSuite) TestRunAttachDetach(c *testing.T) {
 	_, err = cpty.Write([]byte{17})
 	assert.NilError(c, err)
 
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	go func() {
 		cmd.Wait()
 		ch <- struct{}{}
@@ -188,7 +188,7 @@ func (s *DockerSuite) TestRunAttachDetachFromFlag(c *testing.T) {
 		c.Fatal(err)
 	}
 
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	go func() {
 		cmd.Wait()
 		ch <- struct{}{}
@@ -304,7 +304,7 @@ func (s *DockerSuite) TestRunAttachDetachFromConfig(c *testing.T) {
 		c.Fatal(err)
 	}
 
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	go func() {
 		cmd.Wait()
 		ch <- struct{}{}
@@ -387,7 +387,7 @@ func (s *DockerSuite) TestRunAttachDetachKeysOverrideConfig(c *testing.T) {
 		c.Fatal(err)
 	}
 
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	go func() {
 		cmd.Wait()
 		ch <- struct{}{}
@@ -615,7 +615,7 @@ func (s *DockerSuite) TestRunWithInvalidPathforBlkioDeviceWriteIOps(c *testing.T
 
 func (s *DockerSuite) TestRunOOMExitCode(c *testing.T) {
 	testRequires(c, memoryLimitSupport, swapMemorySupport, NotPpc64le)
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		defer close(errChan)
 		// memory limit lower than 8MB will raise an error of "device or resource busy" from docker-runc.
@@ -765,7 +765,7 @@ func (s *DockerSuite) TestRunInvalidCPUShares(c *testing.T) {
 	testRequires(c, cpuShare, DaemonIsLinux)
 	out, _, err := dockerCmdWithError("run", "--cpu-shares", "1", "busybox", "echo", "test")
 	assert.ErrorContains(c, err, "", out)
-	expected := "The minimum allowed cpu-shares is 2"
+	expected := "minimum allowed cpu-shares is 2"
 	assert.Assert(c, strings.Contains(out, expected))
 
 	out, _, err = dockerCmdWithError("run", "--cpu-shares", "-1", "busybox", "echo", "test")
@@ -775,7 +775,7 @@ func (s *DockerSuite) TestRunInvalidCPUShares(c *testing.T) {
 
 	out, _, err = dockerCmdWithError("run", "--cpu-shares", "99999999", "busybox", "echo", "test")
 	assert.ErrorContains(c, err, "", out)
-	expected = "The maximum allowed cpu-shares is"
+	expected = "maximum allowed cpu-shares is"
 	assert.Assert(c, strings.Contains(out, expected))
 }
 
@@ -1245,6 +1245,14 @@ func (s *DockerSuite) TestUserNoEffectiveCapabilitiesSetgid(c *testing.T) {
 
 // TODO CAP_SETPCAP
 
+// sysctlExists checks if a sysctl exists; runc will error if we add any that do not actually
+// exist, so do not add the default ones if running on an old kernel.
+func sysctlExists(s string) bool {
+	f := filepath.Join("/proc", "sys", strings.Replace(s, ".", "/", -1))
+	_, err := os.Stat(f)
+	return err == nil
+}
+
 func (s *DockerSuite) TestUserNoEffectiveCapabilitiesNetBindService(c *testing.T) {
 	testRequires(c, DaemonIsLinux, testEnv.IsLocalDaemon)
 	ensureSyscallTest(c)
@@ -1252,12 +1260,23 @@ func (s *DockerSuite) TestUserNoEffectiveCapabilitiesNetBindService(c *testing.T
 	// test that a root user has default capability CAP_NET_BIND_SERVICE
 	dockerCmd(c, "run", "syscall-test", "socket-test")
 	// test that non root user does not have default capability CAP_NET_BIND_SERVICE
-	icmd.RunCommand(dockerBinary, "run", "--user", "1000:1000", "syscall-test", "socket-test").Assert(c, icmd.Expected{
+	// as we allow this via sysctl, also tweak the sysctl back to default
+	args := []string{"run", "--user", "1000:1000"}
+	if sysctlExists("net.ipv4.ip_unprivileged_port_start") {
+		args = append(args, "--sysctl", "net.ipv4.ip_unprivileged_port_start=1024")
+	}
+	args = append(args, "syscall-test", "socket-test")
+	icmd.RunCommand(dockerBinary, args...).Assert(c, icmd.Expected{
 		ExitCode: 1,
 		Err:      "Permission denied",
 	})
 	// test that root user can drop default capability CAP_NET_BIND_SERVICE
-	icmd.RunCommand(dockerBinary, "run", "--cap-drop", "net_bind_service", "syscall-test", "socket-test").Assert(c, icmd.Expected{
+	args = []string{"run", "--cap-drop", "net_bind_service"}
+	if sysctlExists("net.ipv4.ip_unprivileged_port_start") {
+		args = append(args, "--sysctl", "net.ipv4.ip_unprivileged_port_start=1024")
+	}
+	args = append(args, "syscall-test", "socket-test")
+	icmd.RunCommand(dockerBinary, args...).Assert(c, icmd.Expected{
 		ExitCode: 1,
 		Err:      "Permission denied",
 	})

@@ -556,7 +556,7 @@ func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 			CPUUsage: types.CPUUsage{
 				TotalUsage:        hcss.Processor.TotalRuntime100ns,
 				UsageInKernelmode: hcss.Processor.RuntimeKernel100ns,
-				UsageInUsermode:   hcss.Processor.RuntimeKernel100ns,
+				UsageInUsermode:   hcss.Processor.RuntimeUser100ns,
 			},
 		}
 
@@ -656,4 +656,9 @@ func setupResolvConf(config *config.Config) {
 
 func (daemon *Daemon) useShimV2() bool {
 	return true
+}
+
+// RawSysInfo returns *sysinfo.SysInfo .
+func (daemon *Daemon) RawSysInfo(quiet bool) *sysinfo.SysInfo {
+	return sysinfo.New(quiet)
 }

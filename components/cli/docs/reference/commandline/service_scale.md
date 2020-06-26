@@ -4,15 +4,6 @@ description: "The service scale command description and usage"
 keywords: "service, scale"
 ---
 
-<!-- This file is maintained within the docker/cli GitHub
-     repository at https://github.com/docker/cli/. Make all
-     pull requests against that repo. If you see this file in
-     another repository, consider it read-only there, as it will
-     periodically be overwritten by the definitive file. Pull
-     requests which include edits to this file in other repositories
-     will be rejected.
--->
-
 # service scale
 
 ```markdown
@@ -33,9 +24,12 @@ services which are global mode. The command will return immediately, but the
 actual scaling of the service may take some time. To stop all replicas of a
 service while keeping the service active in the swarm you can set the scale to 0.
 
-> **Note**: This is a cluster management command, and must be executed on a swarm
-> manager node. To learn about managers and workers, refer to the [Swarm mode
-> section](https://docs.docker.com/engine/swarm/) in the documentation.
+> **Note**
+>
+> This is a cluster management command, and must be executed on a swarm
+> manager node. To learn about managers and workers, refer to the
+> [Swarm mode section](https://docs.docker.com/engine/swarm/) in the
+> documentation.
 
 ## Examples
 
@@ -58,7 +52,7 @@ b4g08uwuairexjub6ome6usqh
 
 $ docker service scale backend=10
 
-backend: scale can only be used with replicated mode
+backend: scale can only be used with replicated or replicated-job mode
 ```
 
 Directly afterwards, run `docker service ls`, to see the actual number of

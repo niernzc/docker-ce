@@ -59,13 +59,13 @@ while [ $# -gt 0 ]; do
 	fi
 
 	IFS=','
-	ancestry=( ${ancestryJson//[\[\] \"]/} )
+	ancestry=(${ancestryJson//[\[\] \"]/})
 	unset IFS
 
 	if [ -s "$dir/tags-$imageFile.tmp" ]; then
 		echo -n ', ' >> "$dir/tags-$imageFile.tmp"
 	else
-		images=( "${images[@]}" "$image" )
+		images=("${images[@]}" "$image")
 	fi
 	echo -n '"'"$tag"'": "'"$imageId"'"' >> "$dir/tags-$imageFile.tmp"
 
@@ -84,7 +84,7 @@ while [ $# -gt 0 ]; do
 			echo "skipping existing ${imageId:0:12}"
 			continue
 		fi
-		curl -SL --progress -H "Authorization: Token $token" "https://registry-1.docker.io/v1/images/$imageId/layer" -o "$dir/$imageId/layer.tar" # -C -
+		curl -SL --progress-bar -H "Authorization: Token $token" "https://registry-1.docker.io/v1/images/$imageId/layer" -o "$dir/$imageId/layer.tar" # -C -
 	done
 	echo
 done

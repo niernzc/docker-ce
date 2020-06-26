@@ -161,7 +161,7 @@ Function Nuke-Everything {
             }
 
             $allImages  = $(docker images --format "{{.Repository}}#{{.ID}}")
-            $toRemove   = ($allImages | Select-String -NotMatch "servercore","nanoserver","docker")
+            $toRemove   = ($allImages | Select-String -NotMatch "servercore","nanoserver","docker","busybox")
             $imageCount = ($toRemove | Measure-Object -line).Lines
 
             if ($imageCount -gt 0) {
@@ -528,11 +528,7 @@ Try {
             Throw "ERROR: Failed to docker cp the daemon binary (dockerd.exe) to $env:TEMP\binary"
         }
 
-        $GotestsumBinRelLocationInContainer="src\gotest.tools\gotestsum\gotestsum.exe"
-        if (-not($LastExitCode -eq 0)) {
-            Throw "ERROR: Failed to docker cp the gotestsum binary (gotestsum.exe) to $env:TEMP\binary"
-        }
-        docker cp "$COMMITHASH`:c`:\gopath\$GotestsumBinRelLocationInContainer" $env:TEMP\binary\
+        docker cp "$COMMITHASH`:c`:\gopath\bin\gotestsum.exe" $env:TEMP\binary\
         if (-not (Test-Path "$env:TEMP\binary\gotestsum.exe")) {
             Throw "ERROR: gotestsum.exe not found...." `
         }
@@ -827,23 +823,13 @@ Try {
     # Add the Windows busybox image. Needed for WCOW integration tests
     if (($null -eq $env:LCOW_MODE) -and ($null -eq $env:LCOW_BASIC_MODE)) {
         if ($null -eq $env:SKIP_INTEGRATION_TESTS) {
+            Write-Host -ForegroundColor Green "INFO: Building busybox"
             $ErrorActionPreference = "SilentlyContinue"
-            # Build it regardless while switching between nanoserver and windowsservercore
-            #$bbCount = $(& "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" images | Select-String "busybox" | Measure-Object -line).Lines
-            #$ErrorActionPreference = "Stop"
-            #if (-not($LastExitCode -eq 0)) {
-            #    Throw "ERROR: Could not determine if busybox image is present"
-            #}
-            #if ($bbCount -eq 0) {
-                Write-Host -ForegroundColor Green "INFO: Building busybox"
-                $ErrorActionPreference = "SilentlyContinue"
-                $(& "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" build -t busybox https://raw.githubusercontent.com/moby/busybox/v1.1/Dockerfile | Out-Host)
-                $ErrorActionPreference = "Stop"
-                if (-not($LastExitCode -eq 0)) {
-                    Throw "ERROR: Failed to build busybox image"
-                }
-            #}
-
+            $(& "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" build  -t busybox --build-arg WINDOWS_BASE_IMAGE --build-arg WINDOWS_BASE_IMAGE_TAG "$env:SOURCES_DRIVE`:\$env:SOURCES_SUBDIR\src\github.com\docker\docker\contrib\busybox\" | Out-Host)
+            $ErrorActionPreference = "Stop"
+            if (-not($LastExitCode -eq 0)) {
+                Throw "ERROR: Failed to build busybox image"
+            }
 
             Write-Host -ForegroundColor Green "INFO: Docker images of the daemon under test"
             Write-Host 

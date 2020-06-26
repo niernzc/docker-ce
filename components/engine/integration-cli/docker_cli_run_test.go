@@ -27,7 +27,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/testutil"
@@ -35,8 +34,10 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/docker/libnetwork/resolvconf"
 	"github.com/docker/libnetwork/types"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"github.com/moby/sys/mount"
+	"github.com/moby/sys/mountinfo"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 // "test123" should be printed by docker run
@@ -1438,7 +1439,7 @@ func (s *DockerSuite) TestRunResolvconfUpdate(c *testing.T) {
 	// This test case is meant to test monitoring resolv.conf when it is
 	// a regular file not a bind mounc. So we unmount resolv.conf and replace
 	// it with a file containing the original settings.
-	mounted, err := mount.Mounted("/etc/resolv.conf")
+	mounted, err := mountinfo.Mounted("/etc/resolv.conf")
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -1764,7 +1765,7 @@ func (s *DockerSuite) TestRunExitOnStdinClose(c *testing.T) {
 	if err := stdin.Close(); err != nil {
 		c.Fatal(err)
 	}
-	finish := make(chan error)
+	finish := make(chan error, 1)
 	go func() {
 		finish <- runCmd.Wait()
 		close(finish)
@@ -2522,7 +2523,7 @@ func (s *DockerSuite) TestRunPortFromDockerRangeInUse(c *testing.T) {
 }
 
 func (s *DockerSuite) TestRunTTYWithPipe(c *testing.T) {
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		defer close(errChan)
 
@@ -2809,7 +2810,7 @@ func (s *DockerSuite) TestRunPIDHostWithChildIsKillable(c *testing.T) {
 
 	assert.Assert(c, waitRun(name) == nil)
 
-	errchan := make(chan error)
+	errchan := make(chan error, 1)
 	go func() {
 		if out, _, err := dockerCmdWithError("kill", name); err != nil {
 			errchan <- fmt.Errorf("%v:\n%s", err, out)
@@ -3621,7 +3622,7 @@ func (s *DockerSuite) TestRunStdinBlockedAfterContainerExit(c *testing.T) {
 	cmd.Stderr = stdout
 	assert.Assert(c, cmd.Start() == nil)
 
-	waitChan := make(chan error)
+	waitChan := make(chan error, 1)
 	go func() {
 		waitChan <- cmd.Wait()
 	}()
@@ -3789,7 +3790,7 @@ func (s *DockerSuite) TestRunVolumesMountedAsShared(c *testing.T) {
 	dockerCmd(c, "run", "--privileged", "-v", fmt.Sprintf("%s:/volume-dest:shared", tmpDir), "busybox", "mount", "--bind", "/volume-dest/mnt1", "/volume-dest/mnt1")
 
 	// Make sure a bind mount under a shared volume propagated to host.
-	if mounted, _ := mount.Mounted(path.Join(tmpDir, "mnt1")); !mounted {
+	if mounted, _ := mountinfo.Mounted(path.Join(tmpDir, "mnt1")); !mounted {
 		c.Fatalf("Bind mount under shared volume did not propagate to host")
 	}
 
